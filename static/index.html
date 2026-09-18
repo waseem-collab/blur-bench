@@ -14,7 +14,7 @@
   <div class="start-wrap">
     <header class="start-head">
       <h1>Blur Bench<em>hide anything in a video</em></h1>
-      <p>Open a clip, step to the exact frame, and draw an oval over what should not
+      <p>Open a clip, step to the exact frame, and draw a shape over what should not
          be seen. Export a copy with those spots blurred out. Nothing leaves this machine.</p>
     </header>
 
@@ -103,8 +103,8 @@
             <button class="icon-btn" id="btnEnd" title="Last frame (End)">&#9654;&#9654;&#124;</button>
           </div>
           <div class="group">
-            <button class="icon-btn" id="btnPrevMark" title="Back to the last frame with an oval ( [ )">&#9666;&#9670;</button>
-            <button class="icon-btn" id="btnNextMark" title="On to the next frame with an oval ( ] )">&#9670;&#9656;</button>
+            <button class="icon-btn" id="btnPrevMark" title="Back to the last frame with a shape ( [ )">&#9666;&#9670;</button>
+            <button class="icon-btn" id="btnNextMark" title="On to the next frame with a shape ( ] )">&#9670;&#9656;</button>
           </div>
           <div class="group counter">
             <label for="frameNum">Frame</label>
@@ -124,16 +124,28 @@
 
     <aside class="panel">
       <div class="panel-section">
-        <div class="panel-head">
-          <h3>Ovals <span id="shapeCount" class="count">0</span></h3>
-          <div class="seg" id="scopeFilter">
-            <button data-scope="frame" class="on">This frame</button>
-            <button data-scope="all">Every frame</button>
-          </div>
+        <p class="sub-head">What you draw next</p>
+        <div class="seg wide" id="newKind">
+          <button data-kind="oval" class="on">Oval</button>
+          <button data-kind="rect">Rectangle</button>
+        </div>
+        <div class="seg wide" id="newScope">
+          <button data-scope="one" class="on">Just this frame</button>
+          <button data-scope="all">The whole video</button>
         </div>
         <div class="btn-row">
           <button class="btn ghost small" id="addShape">Add one</button>
           <button class="btn ghost small" id="copyPrev">Copy from previous</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <div class="panel-head">
+          <h3>Shapes <span id="shapeCount" class="count">0</span></h3>
+          <div class="seg" id="scopeFilter">
+            <button data-scope="frame" class="on">This frame</button>
+            <button data-scope="all">Every frame</button>
+          </div>
         </div>
         <ul id="shapeList" class="shape-list"></ul>
         <p class="empty" id="emptyShapes">Nothing covered on this frame. Drag across the picture.</p>
@@ -141,14 +153,19 @@
 
       <div class="panel-section" id="props" hidden>
         <div class="panel-head">
-          <h3 id="propsTitle">Oval</h3>
-          <button class="icon-btn danger" id="delShape" title="Delete this oval (Del)" aria-label="Delete">&#10005;</button>
+          <h3 id="propsTitle">Shape</h3>
+          <button class="icon-btn danger" id="delShape" title="Delete this shape (Del)" aria-label="Delete">&#10005;</button>
         </div>
 
         <div class="slate" id="slate">
           <label class="field"><span>Name</span>
             <input id="pName" type="text"></label>
 
+          <p class="sub-head">Shape</p>
+          <div class="seg wide" id="pKind">
+            <button data-kind="oval">Oval</button>
+            <button data-kind="rect">Rectangle</button>
+          </div>
 
           <label class="field"><span>Cover it with</span>
             <select id="pMode">
@@ -188,8 +205,8 @@
               <input type="checkbox" id="pTrack">
               <span>Follow something that moves</span>
             </label>
-            <p class="muted tiny">With this on, every time you move or resize the oval on a
-              new frame it records a position, and the oval glides between them.</p>
+            <p class="muted tiny">With this on, every time you move or resize the shape on a
+              new frame it records a position, and it glides between them.</p>
             <div class="key-row">
               <span id="keyInfo" class="muted">1 position</span>
               <button class="btn ghost small" id="addKey">Mark here</button>
@@ -199,7 +216,7 @@
 
           <div class="btn-row">
             <button class="btn ghost small" id="dupShape">Duplicate</button>
-            <button class="btn ghost small" id="applyAll">Match all ovals to this</button>
+            <button class="btn ghost small" id="applyAll">Match all shapes to this</button>
           </div>
         </div>
       </div>
@@ -211,9 +228,9 @@
           <li>Step ten <span><kbd>Shift</kbd> <kbd>&larr;</kbd></span></li>
           <li>Play or pause <span><kbd>Space</kbd></span></li>
           <li>See it blurred <span><kbd>B</kbd></span></li>
-          <li>Frame with an oval <span><kbd>[</kbd> <kbd>]</kbd></span></li>
+          <li>Frame with a shape <span><kbd>[</kbd> <kbd>]</kbd></span></li>
           <li>Copy from previous <span><kbd>C</kbd></span></li>
-          <li>Delete the oval <span><kbd>Del</kbd></span></li>
+          <li>Delete the shape <span><kbd>Del</kbd></span></li>
           <li>Duplicate it <span><kbd>Ctrl</kbd> <kbd>D</kbd></span></li>
           <li>Undo, redo <span><kbd>Ctrl</kbd> <kbd>Z</kbd></span></li>
           <li>Deselect <span><kbd>Esc</kbd></span></li>

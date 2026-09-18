@@ -33,9 +33,15 @@ always gives the same picture.
 Frames are decoded on the server, so playback runs as fast as decoding allows
 rather than at true speed — it is for reviewing, not for watching.
 
-## Drawing ovals
+## Drawing shapes
 
-**An oval belongs to the frame you drew it on, and to no other.** Step forward
+**What you draw next** at the top of the right panel picks **Oval** or
+**Rectangle**, and sticks until you change it. A rectangle is covered as a true
+rectangle, right out to its square corners, and it stays a rectangle when you
+turn it. **Shape** in a selected item's settings switches it either way at any
+time, keeping its size and angle.
+
+**A shape belongs to the frame you drew it on, and to no other.** Step forward
 and the picture is clean again. The list in the right panel follows the playhead
 and shows only what is on the current frame; switch it to **Every frame** to see
 the whole set, and clicking any of those takes you to the frame it lives on.
@@ -60,16 +66,16 @@ frames* with **Whole clip** for the full length.
 ### Working frame by frame
 
 Redrawing the same oval on every frame would be miserable, so **Copy from frame
-N** (<kbd>C</kbd>) brings the previous annotated frame's ovals onto this one.
-<kbd>[</kbd> and <kbd>]</kbd> jump to the previous and next frame that carries an
-oval, so you move through your own work rather than through the footage. The
+N** (<kbd>C</kbd>) brings the previous annotated frame's shapes onto this one.
+<kbd>[</kbd> and <kbd>]</kbd> jump to the previous and next frame that carries a
+shape, so you move through your own work rather than through the footage. The
 timeline marks every annotated frame.
 
 ### Covering a stretch in one go
 
-Set an oval to cover *a run of frames* and it applies from its first frame to its
-last. Such an oval can also move: turn on **Follow something that moves** and
-every repositioning on a new frame is recorded, with the oval gliding between
+Set a shape to cover *a run of frames* and it applies from its first frame to its
+last. Such a shape can also move: turn on **Follow something that moves** and
+every repositioning on a new frame is recorded, with it gliding between
 those positions.
 
 ## Exporting

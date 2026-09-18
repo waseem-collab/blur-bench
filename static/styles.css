@@ -278,6 +278,7 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .shape-item:hover{background:#1E221E}
 .shape-item.sel{background:#1F231D;border-left-color:currentColor}
 .shape-item .gel{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.shape-item .gel.box{border-radius:1px}
 .shape-item .sn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-size:13px;color:var(--chalk)}
 .shape-item .sr{font:11px var(--mono);color:var(--dim)}

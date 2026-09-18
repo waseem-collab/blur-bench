@@ -204,14 +204,17 @@ def _odd(v: int) -> int:
 
 
 def obscure(frame: np.ndarray, shape: dict, geom) -> None:
-    """Blur/pixelate/black out one elliptical region of `frame`, in place."""
+    """Blur/pixelate/black out one oval or rectangular region of `frame`, in place."""
     h, w = frame.shape[:2]
     cx, cy, rx, ry, ang = geom
     rx, ry = max(1.0, float(rx)), max(1.0, float(ry))
+    kind = shape.get("kind", "oval")
 
     feather_pct = float(shape.get("feather", 12))
     feather = max(0.0, min(rx, ry) * feather_pct / 100.0)
-    pad = int(np.ceil(max(rx, ry) + feather * 3 + 4))
+    # a turned rectangle reaches to its corners, further than either half-axis
+    reach = float(np.hypot(rx, ry)) if kind == "rect" else max(rx, ry)
+    pad = int(np.ceil(reach + feather * 3 + 4))
 
     x0, y0 = max(0, int(cx) - pad), max(0, int(cy) - pad)
     x1, y1 = min(w, int(cx) + pad + 1), min(h, int(cy) + pad + 1)
@@ -241,8 +244,13 @@ def obscure(frame: np.ndarray, shape: dict, geom) -> None:
         cover = cv2.GaussianBlur(cover, (k, k), 0)
 
     mask = np.zeros((rh, rw), np.uint8)
-    cv2.ellipse(mask, (int(round(cx - x0)), int(round(cy - y0))),
-                (int(round(rx)), int(round(ry))), float(ang), 0, 360, 255, -1)
+    if kind == "rect":
+        box = cv2.boxPoints(((float(cx - x0), float(cy - y0)),
+                             (float(rx * 2), float(ry * 2)), float(ang)))
+        cv2.fillConvexPoly(mask, np.int32(np.round(box)), 255)
+    else:
+        cv2.ellipse(mask, (int(round(cx - x0)), int(round(cy - y0))),
+                    (int(round(rx)), int(round(ry))), float(ang), 0, 360, 255, -1)
     if feather >= 1:
         fk = _odd(feather * 2)
         mask = cv2.GaussianBlur(mask, (fk, fk), 0)

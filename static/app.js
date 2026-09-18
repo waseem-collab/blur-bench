@@ -22,6 +22,7 @@ const S = {
   zoom: 'fit', scale: 1, playing: false, playTimer: null,
   undo: [], redo: [], saveTimer: null, rev: 0,
   drag: null, hover: null, loading: 0, scope: 'frame',
+  newKind: 'oval', newScope: 'one',
 };
 
 /* ====================================================================== */
@@ -41,7 +42,7 @@ async function refreshRecent() {
     const el = document.createElement('div');
     el.className = 'recent-item';
     const covered = it.shapes
-      ? `<b>${it.shapes}</b> oval${it.shapes === 1 ? '' : 's'} so far`
+      ? `<b>${it.shapes}</b> shape${it.shapes === 1 ? '' : 's'} so far`
       : 'nothing covered yet';
     el.innerHTML = `<img class="thumb" src="/api/project/${it.id}/thumb" alt="">
       <div class="ri-main">
@@ -280,9 +281,12 @@ function newId() { return 's' + Math.random().toString(36).slice(2, 9); }
 
 function makeShape(cx, cy, rx, ry) {
   const n = S.shapes.length;
+  const kind = S.newKind;
   const whole = S.newScope === 'all';
   return {
-    id: newId(), name: 'Oval ' + (n + 1), color: PALETTE[n % PALETTE.length],
+    id: newId(), kind,
+    name: (kind === 'rect' ? 'Box ' : 'Oval ') + (n + 1),
+    color: PALETTE[n % PALETTE.length],
     enabled: true, mode: 'blur', strength: 45, feather: 12, track: false,
     start: whole ? 0 : S.frame,
     end: whole ? S.proj.meta.frames - 1 : S.frame,
@@ -427,9 +431,21 @@ function scheduleSave() {
 /* overlay drawing                                                         */
 /* ====================================================================== */
 
-function ellipsePath(ctx, g) {
-  ctx.beginPath();
-  ctx.ellipse(g.cx, g.cy, Math.max(0.5, g.rx), Math.max(0.5, g.ry), g.ang * Math.PI / 180, 0, Math.PI * 2);
+function shapePath(ctx, kind, g) {
+  const a = g.ang * Math.PI / 180;
+  const rx = Math.max(0.5, g.rx), ry = Math.max(0.5, g.ry);
+  if (kind === 'rect') {
+    // built under a rotated transform; the path keeps that geometry after restore
+    ctx.save();
+    ctx.translate(g.cx, g.cy);
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.rect(-rx, -ry, rx * 2, ry * 2);
+    ctx.restore();
+  } else {
+    ctx.beginPath();
+    ctx.ellipse(g.cx, g.cy, rx, ry, a, 0, Math.PI * 2);
+  }
 }
 
 function handlePoints(g) {
@@ -456,7 +472,7 @@ function drawOverlay() {
     const isSel = sh.id === S.sel;
 
     ctx.save();
-    ellipsePath(ctx, g);
+    shapePath(ctx, sh.kind, g);
     if (sh.enabled) {
       ctx.fillStyle = sh.color + (isSel ? '2e' : '1c');
       ctx.fill();
@@ -480,7 +496,7 @@ function drawOverlay() {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     const marks = sh.track && sh.keys.length > 1 ? `  ${sh.keys.length}◆` : '';
-    const label = (sh.name || 'Oval') + marks;
+    const label = (sh.name || 'Shape') + marks;
     const tw = Math.ceil(ctx.measureText(label).width) + 12;
     const tx = clamp(Math.round(lx - tw / 2), 2, Math.max(2, cv.clientWidth - tw - 2));
     const ty = Math.max(2, Math.round(ly - 19));
@@ -522,7 +538,7 @@ function drawOverlay() {
   // the oval being dragged out right now
   if (S.drag && S.drag.type === 'new' && S.drag.g) {
     ctx.save();
-    ellipsePath(ctx, S.drag.g);
+    shapePath(ctx, S.newKind, S.drag.g);
     ctx.strokeStyle = CHALK; ctx.lineWidth = px(1.3);
     ctx.setLineDash([px(6), px(5)]); ctx.stroke();
     ctx.restore();
@@ -563,8 +579,10 @@ function hitTest(p) {
     const g = geomAt(sh, S.frame);
     if (!g) continue;
     const l = localOf(g, p);
-    if ((l.x / Math.max(1, g.rx)) ** 2 + (l.y / Math.max(1, g.ry)) ** 2 <= 1)
-      return { type: 'move', shape: sh };
+    const inside = sh.kind === 'rect'
+      ? Math.abs(l.x) <= g.rx && Math.abs(l.y) <= g.ry
+      : (l.x / Math.max(1, g.rx)) ** 2 + (l.y / Math.max(1, g.ry)) ** 2 <= 1;
+    if (inside) return { type: 'move', shape: sh };
   }
   return null;
 }
@@ -706,7 +724,7 @@ function renderShapeList() {
     li.className = 'shape-item' + (sh.id === S.sel ? ' sel' : '')
       + (sh.enabled ? '' : ' off') + (live ? '' : ' elsewhere');
     li.style.color = sh.color;
-    li.innerHTML = `<span class="gel" style="background:${sh.color}"></span>
+    li.innerHTML = `<span class="gel ${sh.kind === 'rect' ? 'box' : ''}" style="background:${sh.color}"></span>
       <span class="sn">${esc(sh.name)}</span>
       <span class="sr">${sh.start === sh.end ? sh.start : sh.start + '\u2013' + sh.end}</span>
       <span class="eye" title="${sh.enabled ? 'Leave this one out' : 'Put this one back'}">${sh.enabled ? '&#9673;' : '&#9675;'}</span>`;
@@ -725,8 +743,10 @@ function syncProps() {
   const sh = selected();
   $('props').hidden = !sh;
   if (!sh) return;
-  $('propsTitle').textContent = sh.name || 'Oval';
+  $('propsTitle').textContent = sh.name || 'Shape';
   $('slate').style.setProperty('--gel', sh.color);
+  $('pKind').querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', b.dataset.kind === (sh.kind || 'oval')));
   $('pName').value = sh.name;
   $('pMode').value = sh.mode;
   $('pStrength').value = sh.strength; $('pStrengthVal').textContent = sh.strength;
@@ -760,6 +780,21 @@ function initPanel() {
   };
   $('delShape').onclick = deleteSelected;
   $('copyPrev').onclick = copyFromPrevious;
+  $('newKind').querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      S.newKind = b.dataset.kind;
+      $('newKind').querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b));
+    };
+  });
+  $('newScope').querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      S.newScope = b.dataset.scope;
+      $('newScope').querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b));
+    };
+  });
+  $('pKind').querySelectorAll('button').forEach(b => {
+    b.onclick = () => editShape(s => { s.kind = b.dataset.kind; });
+  });
   $('scopeFilter').querySelectorAll('button').forEach(b => {
     b.onclick = () => {
       S.scope = b.dataset.scope;
@@ -783,7 +818,7 @@ function initPanel() {
     const sh = selected();
     if (!sh) return;
     sh.name = e.target.value;
-    $('propsTitle').textContent = sh.name || 'Oval';
+    $('propsTitle').textContent = sh.name || 'Shape';
     renderShapeList(); markDirty(); scheduleSave(); drawOverlay();
   };
   $('pMode').onchange = (e) => editShape(s => s.mode = e.target.value);
@@ -1111,8 +1146,8 @@ function updateSummary() {
   $('xSummary').innerHTML =
     `<b>${n}</b> frames, ${fmtTime(n / S.proj.meta.fps).replace(/\.\d+$/, '')} of footage. ` +
     (active.length
-      ? `<b>${active.length}</b> oval${active.length === 1 ? '' : 's'} will be covered`
-      : 'No ovals fall in this range, so nothing will be covered') +
+      ? `<b>${active.length}</b> shape${active.length === 1 ? '' : 's'} will be covered`
+      : 'No shapes fall in this range, so nothing will be covered') +
     (skipped > 0 ? `, ${skipped} left out.` : '.');
 }
 
