@@ -35,10 +35,13 @@ rather than at true speed — it is for reviewing, not for watching.
 
 ## Drawing ovals
 
+**An oval belongs to the frame you drew it on, and to no other.** Step forward
+and the picture is clean again. The list in the right panel follows the playhead
+and shows only what is on the current frame; switch it to **Every frame** to see
+the whole set, and clicking any of those takes you to the frame it lives on.
+
 Drag across the picture to draw one. Hold <kbd>Shift</kbd> for a circle, or
-<kbd>Alt</kbd> to draw out from the centre. An oval covers the whole clip by
-default; **From** and **To** in its settings narrow that to a range of frames,
-and "Start here" / "End here" use the frame you are on.
+<kbd>Alt</kbd> to draw out from the centre.
 
 Once drawn it stays editable: click to select, drag the middle to move, drag any
 of the eight handles to resize, and use the handle on the stem above it to rotate
@@ -51,12 +54,23 @@ measured against its own size, and **edge softness**. The ◉ beside it in the l
 leaves it out without deleting it. Turn on **See it blurred** to see the frame
 exactly as it will export.
 
-### Following something that moves
+**Covers** is *this frame only*, which is how every oval starts, or *a run of
+frames* with **Whole clip** for the full length.
 
-Turn on **Follow something that moves** and every time you reposition the oval on
-a new frame that position is recorded, with the oval sliding, growing and turning
-between recorded positions. Those positions show as diamonds on its strip in the
-timeline.
+### Working frame by frame
+
+Redrawing the same oval on every frame would be miserable, so **Copy from frame
+N** (<kbd>C</kbd>) brings the previous annotated frame's ovals onto this one.
+<kbd>[</kbd> and <kbd>]</kbd> jump to the previous and next frame that carries an
+oval, so you move through your own work rather than through the footage. The
+timeline marks every annotated frame.
+
+### Covering a stretch in one go
+
+Set an oval to cover *a run of frames* and it applies from its first frame to its
+last. Such an oval can also move: turn on **Follow something that moves** and
+every repositioning on a new frame is recorded, with the oval gliding between
+those positions.
 
 ## Exporting
 

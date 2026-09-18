@@ -263,6 +263,15 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .panel-head h3{font-family:var(--cond);font-size:16px;display:flex;align-items:baseline;gap:8px}
 .count{font:12px var(--mono);color:var(--dim)}
 
+.seg{display:inline-flex;border:1px solid var(--edge);border-radius:var(--r);overflow:hidden}
+.seg button{background:transparent;border:0;padding:4px 9px;font-size:11.5px;
+  color:var(--dust);cursor:pointer;transition:background .12s,color .12s}
+.seg button:hover{color:var(--chalk)}
+.seg button.on{background:var(--rail);color:var(--chalk)}
+.seg button+button{border-left:1px solid var(--edge)}
+.seg.wide{display:flex;width:100%;margin-bottom:14px}
+.seg.wide button{flex:1;padding:6px 8px;font-size:12px}
+
 .shape-list{list-style:none;margin:0 -6px;padding:0;display:flex;flex-direction:column}
 .shape-item{display:flex;align-items:center;gap:9px;padding:7px 6px;cursor:pointer;
   border-left:2px solid transparent;transition:background .12s}
@@ -277,6 +286,8 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .shape-item.off .sn,.shape-item.off .sr{color:var(--dim);text-decoration:line-through;
   text-decoration-color:var(--edge)}
 .shape-item.off .gel{opacity:.35}
+.shape-item.elsewhere{opacity:.55}
+.shape-item.elsewhere .sr{color:var(--lamp)}
 
 /* the slate: selected oval's controls, tinted by its gel */
 .slate{border-left:2px solid var(--gel,var(--lamp));padding-left:14px;margin-left:-2px}

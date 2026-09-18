@@ -87,7 +87,7 @@
           <div class="reg" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         </div>
         <div id="loading" class="loading" hidden><div class="spinner"></div></div>
-        <p id="hint" class="hint">Drag across the picture to cover something</p>
+        <p id="hint" class="hint">Drag across the picture to cover something on this frame</p>
       </div>
 
       <div class="transport">
@@ -101,6 +101,10 @@
             <button class="icon-btn" id="btnNext" title="On one frame (right arrow)">&#9654;</button>
             <button class="icon-btn" id="btnFwd10" title="On ten frames (Shift + right arrow)">&#9654;&#9654;</button>
             <button class="icon-btn" id="btnEnd" title="Last frame (End)">&#9654;&#9654;&#124;</button>
+          </div>
+          <div class="group">
+            <button class="icon-btn" id="btnPrevMark" title="Back to the last frame with an oval ( [ )">&#9666;&#9670;</button>
+            <button class="icon-btn" id="btnNextMark" title="On to the next frame with an oval ( ] )">&#9670;&#9656;</button>
           </div>
           <div class="group counter">
             <label for="frameNum">Frame</label>
@@ -122,10 +126,17 @@
       <div class="panel-section">
         <div class="panel-head">
           <h3>Ovals <span id="shapeCount" class="count">0</span></h3>
+          <div class="seg" id="scopeFilter">
+            <button data-scope="frame" class="on">This frame</button>
+            <button data-scope="all">Every frame</button>
+          </div>
+        </div>
+        <div class="btn-row">
           <button class="btn ghost small" id="addShape">Add one</button>
+          <button class="btn ghost small" id="copyPrev">Copy from previous</button>
         </div>
         <ul id="shapeList" class="shape-list"></ul>
-        <p class="empty" id="emptyShapes">Nothing covered yet. Drag across the picture.</p>
+        <p class="empty" id="emptyShapes">Nothing covered on this frame. Drag across the picture.</p>
       </div>
 
       <div class="panel-section" id="props" hidden>
@@ -152,20 +163,27 @@
           <label class="field"><span>Edge softness <b id="pFeatherVal">12</b></span>
             <input id="pFeather" type="range" min="0" max="60" value="12"></label>
 
-          <p class="sub-head">Covered between these frames</p>
-          <div class="field-row">
-            <label class="field"><span>From</span>
-              <input id="pStart" type="number" min="0" step="1"></label>
-            <label class="field"><span>To</span>
-              <input id="pEnd" type="number" min="0" step="1"></label>
-          </div>
-          <div class="btn-row">
-            <button class="btn ghost small" id="pStartHere">Start here</button>
-            <button class="btn ghost small" id="pEndHere">End here</button>
-            <button class="btn ghost small" id="pWhole">Whole clip</button>
+          <p class="sub-head">Covers</p>
+          <div class="seg wide" id="scopeToggle">
+            <button data-mode="one" class="on">This frame only</button>
+            <button data-mode="range">A run of frames</button>
           </div>
 
-          <div class="track-box">
+          <div id="rangeFields" hidden>
+            <div class="field-row">
+              <label class="field"><span>From</span>
+                <input id="pStart" type="number" min="0" step="1"></label>
+              <label class="field"><span>To</span>
+                <input id="pEnd" type="number" min="0" step="1"></label>
+            </div>
+            <div class="btn-row">
+              <button class="btn ghost small" id="pStartHere">Start here</button>
+              <button class="btn ghost small" id="pEndHere">End here</button>
+              <button class="btn ghost small" id="pWhole">Whole clip</button>
+            </div>
+          </div>
+
+          <div class="track-box" id="trackBox" hidden>
             <label class="toggle">
               <input type="checkbox" id="pTrack">
               <span>Follow something that moves</span>
@@ -193,6 +211,8 @@
           <li>Step ten <span><kbd>Shift</kbd> <kbd>&larr;</kbd></span></li>
           <li>Play or pause <span><kbd>Space</kbd></span></li>
           <li>See it blurred <span><kbd>B</kbd></span></li>
+          <li>Frame with an oval <span><kbd>[</kbd> <kbd>]</kbd></span></li>
+          <li>Copy from previous <span><kbd>C</kbd></span></li>
           <li>Delete the oval <span><kbd>Del</kbd></span></li>
           <li>Duplicate it <span><kbd>Ctrl</kbd> <kbd>D</kbd></span></li>
           <li>Undo, redo <span><kbd>Ctrl</kbd> <kbd>Z</kbd></span></li>

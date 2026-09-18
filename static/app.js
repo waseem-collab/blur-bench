@@ -21,7 +21,7 @@ const S = {
   proj: null, shapes: [], frame: 0, sel: null,
   zoom: 'fit', scale: 1, playing: false, playTimer: null,
   undo: [], redo: [], saveTimer: null, rev: 0,
-  drag: null, hover: null, loading: 0,
+  drag: null, hover: null, loading: 0, scope: 'frame',
 };
 
 /* ====================================================================== */
@@ -206,6 +206,7 @@ function goto(n, force) {
   loadFrame();
   drawOverlay();
   drawTimeline();
+  renderShapeList();
   syncProps();
 }
 
@@ -279,10 +280,12 @@ function newId() { return 's' + Math.random().toString(36).slice(2, 9); }
 
 function makeShape(cx, cy, rx, ry) {
   const n = S.shapes.length;
+  const whole = S.newScope === 'all';
   return {
     id: newId(), name: 'Oval ' + (n + 1), color: PALETTE[n % PALETTE.length],
     enabled: true, mode: 'blur', strength: 45, feather: 12, track: false,
-    start: 0, end: S.proj.meta.frames - 1,
+    start: whole ? 0 : S.frame,
+    end: whole ? S.proj.meta.frames - 1 : S.frame,
     keys: [{ f: S.frame, cx, cy, rx, ry, ang: 0 }],
   };
 }
@@ -332,6 +335,56 @@ function writeGeom(sh, f, g, kind) {
 }
 
 function selected() { return S.shapes.find(s => s.id === S.sel) || null; }
+
+function onFrame(f) { return S.shapes.filter(s => geomAt(s, f)); }
+
+/** Nearest frame before `from` that carries an oval, or -1. */
+function prevMarked(from) {
+  let best = -1;
+  for (const s of S.shapes) {
+    const f = Math.min(s.end, from - 1);
+    if (f >= s.start && f > best) best = f;
+  }
+  return best;
+}
+
+/** Nearest frame after `from` that carries an oval, or -1. */
+function nextMarked(from) {
+  let best = Infinity;
+  for (const s of S.shapes) {
+    const f = Math.max(s.start, from + 1);
+    if (f <= s.end && f < best) best = f;
+  }
+  return isFinite(best) ? best : -1;
+}
+
+/** Bring the previous marked frame's ovals onto this one, so you can nudge them. */
+function copyFromPrevious() {
+  const src = prevMarked(S.frame);
+  const from = src < 0 ? [] : onFrame(src);
+  if (!from.length) return;
+  snapshot();
+  let last = null;
+  for (const s of from) {
+    const g = geomAt(s, src);
+    const copy = JSON.parse(JSON.stringify(s));
+    copy.id = newId();
+    copy.start = copy.end = S.frame;
+    copy.track = false;
+    copy.keys = [{ f: S.frame, cx: g.cx, cy: g.cy, rx: g.rx, ry: g.ry, ang: g.ang }];
+    S.shapes.push(copy);
+    last = copy.id;
+  }
+  S.sel = last;
+  afterChange();
+}
+
+function syncCopyBtn() {
+  const src = prevMarked(S.frame);
+  const btn = $('copyPrev');
+  btn.disabled = src < 0;
+  btn.textContent = src < 0 ? 'Copy from previous' : `Copy from frame ${src}`;
+}
 
 /* ---- undo ---- */
 function snapshot() {
@@ -632,23 +685,38 @@ function select(id) { S.sel = id; renderShapeList(); syncProps(); drawOverlay();
 
 function renderShapeList() {
   const ul = $('shapeList'); ul.innerHTML = '';
-  $('shapeCount').textContent = S.shapes.length;
-  $('emptyShapes').hidden = S.shapes.length > 0;
-  $('hint').style.opacity = S.shapes.length ? 0 : 1;
+  const here = onFrame(S.frame);
+  const list = S.scope === 'all' ? S.shapes : here;
 
-  S.shapes.forEach(sh => {
+  $('shapeCount').textContent = S.scope === 'all'
+    ? S.shapes.length
+    : `${here.length} of ${S.shapes.length}`;
+  $('emptyShapes').hidden = list.length > 0;
+  $('emptyShapes').textContent = S.scope === 'all'
+    ? 'Nothing covered anywhere yet. Drag across the picture.'
+    : (S.shapes.length
+      ? 'Nothing on this frame. Drag across the picture, or copy the previous frame.'
+      : 'Nothing covered on this frame. Drag across the picture.');
+  $('hint').style.opacity = S.shapes.length ? 0 : 1;
+  syncCopyBtn();
+
+  list.forEach(sh => {
+    const live = !!geomAt(sh, S.frame);
     const li = document.createElement('li');
-    li.className = 'shape-item' + (sh.id === S.sel ? ' sel' : '') + (sh.enabled ? '' : ' off');
+    li.className = 'shape-item' + (sh.id === S.sel ? ' sel' : '')
+      + (sh.enabled ? '' : ' off') + (live ? '' : ' elsewhere');
     li.style.color = sh.color;
     li.innerHTML = `<span class="gel" style="background:${sh.color}"></span>
       <span class="sn">${esc(sh.name)}</span>
-      <span class="sr">${sh.start}\u2013${sh.end}</span>
+      <span class="sr">${sh.start === sh.end ? sh.start : sh.start + '\u2013' + sh.end}</span>
       <span class="eye" title="${sh.enabled ? 'Leave this one out' : 'Put this one back'}">${sh.enabled ? '&#9673;' : '&#9675;'}</span>`;
-    li.onclick = () => select(sh.id);
+    li.onclick = () => {
+      if (!live) goto(sh.start);        // an oval from another frame takes you there
+      select(sh.id);
+    };
     li.querySelector('.eye').onclick = (e) => {
       e.stopPropagation(); snapshot(); sh.enabled = !sh.enabled; afterChange();
     };
-    li.ondblclick = (e) => { e.stopPropagation(); goto(sh.start); };
     ul.appendChild(li);
   });
 }
@@ -663,12 +731,18 @@ function syncProps() {
   $('pMode').value = sh.mode;
   $('pStrength').value = sh.strength; $('pStrengthVal').textContent = sh.strength;
   $('pFeather').value = sh.feather; $('pFeatherVal').textContent = sh.feather;
+  const single = sh.start === sh.end;
+  $('scopeToggle').querySelectorAll('button').forEach(b =>
+    b.classList.toggle('on', (b.dataset.mode === 'one') === single));
+  $('rangeFields').hidden = single;
+  $('trackBox').hidden = single;        // interpolation means nothing on one frame
   $('pStart').value = sh.start; $('pEnd').value = sh.end;
   $('pStart').max = $('pEnd').max = S.proj.meta.frames - 1;
   $('pTrack').checked = !!sh.track;
   const onKey = !!keyAt(sh, S.frame);
-  $('keyInfo').textContent = `${sh.keys.length} keyframe${sh.keys.length === 1 ? '' : 's'}` +
-    (onKey ? ' \u00b7 on one now' : '');
+  $('keyInfo').textContent = sh.keys.length === 1
+    ? '1 position'
+    : `${sh.keys.length} positions${onKey ? ', on one' : ''}`;
   $('delKey').disabled = !onKey || sh.keys.length <= 1;
 }
 
@@ -685,6 +759,26 @@ function initPanel() {
     S.shapes.push(sh); S.sel = sh.id; afterChange();
   };
   $('delShape').onclick = deleteSelected;
+  $('copyPrev').onclick = copyFromPrevious;
+  $('scopeFilter').querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      S.scope = b.dataset.scope;
+      $('scopeFilter').querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b));
+      renderShapeList();
+    };
+  });
+  $('scopeToggle').querySelectorAll('button').forEach(b => {
+    b.onclick = () => editShape(s => {
+      if (b.dataset.mode === 'one') {
+        const g = geomAt(s, S.frame) || s.keys[0];
+        s.start = s.end = S.frame;
+        s.keys = [{ f: S.frame, cx: g.cx, cy: g.cy, rx: g.rx, ry: g.ry, ang: g.ang }];
+        s.track = false;
+      } else if (s.end <= s.start) {
+        s.end = S.proj.meta.frames - 1;
+      }
+    });
+  });
   $('pName').oninput = (e) => {
     const sh = selected();
     if (!sh) return;
@@ -800,41 +894,41 @@ function drawTimeline() {
     ctx.fillText(lbl, clamp(x, half, w - half), ruleY + 13);
   }
 
-  // one strip of gel tape per oval
-  const n = Math.max(1, S.shapes.length);
-  const laneH = Math.max(3, Math.min(9, (laneBottom - laneTop) / n - 2));
-  const pitch = laneH + 2;
-  S.shapes.forEach((sh, i) => {
-    const y = laneTop + i * pitch;
-    if (y + laneH > laneBottom) return;
+  // Every oval marks the frames it covers, all in one band. Annotating a clip
+  // frame by frame then reads as a density map rather than hundreds of lanes.
+  const bandH = Math.min(13, laneBottom - laneTop);
+  const bandY = laneTop + Math.max(0, (laneBottom - laneTop - bandH) / 2);
+  ctx.fillStyle = '#1A1E19';
+  ctx.fillRect(PAD, bandY, w - PAD * 2, bandH);
+
+  S.shapes.forEach(sh => {
     const x0 = X(sh.start), x1 = X(sh.end);
-    const isSel = sh.id === S.sel;
-
-    ctx.globalAlpha = sh.enabled ? (isSel ? 1 : .6) : .22;
+    const bw = Math.max(2, x1 - x0);
+    ctx.globalAlpha = sh.enabled ? (sh.id === S.sel ? 1 : .7) : .25;
     ctx.fillStyle = sh.color;
-    roundRect(ctx, x0, y, Math.max(2.5, x1 - x0), laneH, 1.5, true);
+    roundRect(ctx, x0, bandY, bw, bandH, bw < 4 ? .5 : 1.5, true);
+  });
+  ctx.globalAlpha = 1;
 
-    if (isSel) {                       // bright caps on the selected strip
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = CHALK;
-      ctx.fillRect(Math.round(x0), y - 2, 1, laneH + 4);
-      ctx.fillRect(Math.round(x1), y - 2, 1, laneH + 4);
-    }
-    if (sh.keys.length > 1) {          // recorded positions
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = sh.enabled ? '#16180F' : DIM;
-      sh.keys.forEach(k => {
-        const kx = X(k.f), r = Math.min(3, laneH / 2 + .5);
+  const sel = selected();
+  if (sel) {                           // chalk caps so the selected one is findable
+    const x0 = X(sel.start), x1 = X(sel.end);
+    ctx.fillStyle = CHALK;
+    ctx.fillRect(Math.round(x0), bandY - 2, 1, bandH + 4);
+    ctx.fillRect(Math.round(x1), bandY - 2, 1, bandH + 4);
+    if (sel.keys.length > 1) {         // recorded positions
+      ctx.fillStyle = '#16180F';
+      sel.keys.forEach(k => {
+        const kx = X(k.f), r = Math.min(3, bandH / 2);
         ctx.beginPath();
-        ctx.moveTo(kx, y + laneH / 2 - r);
-        ctx.lineTo(kx + r, y + laneH / 2);
-        ctx.lineTo(kx, y + laneH / 2 + r);
-        ctx.lineTo(kx - r, y + laneH / 2);
+        ctx.moveTo(kx, bandY + bandH / 2 - r);
+        ctx.lineTo(kx + r, bandY + bandH / 2);
+        ctx.lineTo(kx, bandY + bandH / 2 + r);
+        ctx.lineTo(kx - r, bandY + bandH / 2);
         ctx.closePath(); ctx.fill();
       });
     }
-    ctx.globalAlpha = 1;
-  });
+  }
 
   // the blade, with its frame number riding on top
   const hx = Math.round(X(S.frame)) + .5;
@@ -888,9 +982,11 @@ function initTimeline() {
 /* ====================================================================== */
 
 function stopPlay() {
+  const was = S.playing;
   S.playing = false;
   clearTimeout(S.playTimer);
   $('btnPlay').innerHTML = '&#9654;';
+  if (was && S.proj) { renderShapeList(); syncProps(); }
 }
 
 function togglePlay() {
@@ -928,6 +1024,8 @@ function initTransport() {
   $('btnFwd10').onclick = () => { stopPlay(); goto(S.frame + 10); };
   $('btnStart').onclick = () => { stopPlay(); goto(0); };
   $('btnEnd').onclick = () => { stopPlay(); goto(S.proj.meta.frames - 1); };
+  $('btnPrevMark').onclick = () => { const f = prevMarked(S.frame); if (f >= 0) { stopPlay(); goto(f); } };
+  $('btnNextMark').onclick = () => { const f = nextMarked(S.frame); if (f >= 0) { stopPlay(); goto(f); } };
   $('btnPlay').onclick = togglePlay;
   $('frameNum').onchange = (e) => { stopPlay(); goto(+e.target.value); };
   $('zoom').oninput = (e) => setZoom(+e.target.value);
@@ -972,6 +1070,11 @@ function initKeys() {
       case 'Escape': select(null); break;
       case 'b': case 'B': $('previewBlur').checked = !$('previewBlur').checked;
         S.rev++; loadFrame(); break;
+      case 'c': case 'C': e.preventDefault(); copyFromPrevious(); break;
+      case '[': { e.preventDefault(); stopPlay();
+        const f = prevMarked(S.frame); if (f >= 0) goto(f); break; }
+      case ']': { e.preventDefault(); stopPlay();
+        const f = nextMarked(S.frame); if (f >= 0) goto(f); break; }
     }
   });
 }
