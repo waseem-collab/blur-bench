@@ -33,6 +33,18 @@ always gives the same picture.
 Frames are decoded on the server, so playback runs as fast as decoding allows
 rather than at true speed — it is for reviewing, not for watching.
 
+### Zooming in
+
+**Scroll over the picture to zoom**, and whatever is under the pointer stays
+under the pointer. <kbd>+</kbd> and <kbd>-</kbd> do the same from the middle,
+<kbd>0</kbd> or **Fit** puts the whole frame back in view. Since the wheel is
+spoken for, **drag with the middle mouse button to pan**. Past 200% the real
+pixels are shown rather than a smoothed guess.
+
+While the picture is smaller than the window it sits centred, so there is nowhere
+to scroll and zoom goes to the middle rather than to the pointer. Once it fills
+the window, zoom follows the cursor.
+
 ## Drawing shapes
 
 **What you draw next** at the top of the right panel picks **Oval** or

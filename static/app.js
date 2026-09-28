@@ -16,6 +16,7 @@ const PALETTE = ['#FF6B5A', '#4FC3E8', '#A8D84A', '#F07CC3',
 const CHALK = '#E9E7DF', DIM = '#666E64', EDGE = '#313630';
 const HANDLE = 7;        // screen px
 const ROT_OFFSET = 26;   // screen px above the oval
+const ZMIN = 10, ZMAX = 800;   // zoom percent
 
 const S = {
   proj: null, shapes: [], frame: 0, sel: null,
@@ -247,18 +248,34 @@ function refreshPreview() {
 function fitZoom() {
   const st = $('stage'), m = S.proj.meta;
   const availW = st.clientWidth - 64, availH = st.clientHeight - 64;
-  S.scale = Math.min(availW / m.width, availH / m.height, 4);
+  S.scale = Math.min(availW / m.width, availH / m.height, ZMAX / 100);
   if (!isFinite(S.scale) || S.scale <= 0) S.scale = 1;
   S.zoom = 'fit';
-  $('zoom').value = clamp(Math.round(S.scale * 100), 25, 400);
+  $('zoom').value = clamp(Math.round(S.scale * 100), ZMIN, ZMAX);
   $('zoomVal').textContent = 'fit';
   applyScale();
 }
 
 function setZoom(pct) {
-  S.zoom = pct; S.scale = pct / 100;
-  $('zoomVal').textContent = pct + '%';
+  pct = clamp(pct, ZMIN, ZMAX);
+  S.zoom = pct;
+  S.scale = pct / 100;
+  $('zoom').value = Math.round(pct);
+  $('zoomVal').textContent = Math.round(pct) + '%';
   applyScale();
+}
+
+/** Zoom so that whatever sits under the pointer stays under the pointer. */
+function zoomAt(pct, clientX, clientY) {
+  const stage = $('stage'), inner = $('stageInner');
+  const before = inner.getBoundingClientRect();
+  const vx = (clientX - before.left) / S.scale;
+  const vy = (clientY - before.top) / S.scale;
+  setZoom(pct);
+  const after = inner.getBoundingClientRect();
+  // scrolling right by d moves the picture left by d, so push the anchor back
+  stage.scrollLeft += (after.left + vx * S.scale) - clientX;
+  stage.scrollTop += (after.top + vy * S.scale) - clientY;
 }
 
 function applyScale() {
@@ -267,6 +284,7 @@ function applyScale() {
   const img = $('frameImg'), cv = $('overlay'), inner = $('stageInner');
   inner.style.width = w + 'px'; inner.style.height = h + 'px';
   img.style.width = w + 'px'; img.style.height = h + 'px';
+  img.style.imageRendering = S.scale >= 2 ? 'pixelated' : 'auto';
   const dpr = window.devicePixelRatio || 1;
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
@@ -997,6 +1015,47 @@ function roundRect(ctx, x, y, w, h, r, fill) {
   if (fill) ctx.fill();
 }
 
+function nudgeZoom(factor) {
+  const r = $('stage').getBoundingClientRect();
+  const current = S.zoom === 'fit' ? S.scale * 100 : S.zoom;
+  zoomAt(current * factor, r.left + r.width / 2, r.top + r.height / 2);
+}
+
+function initStageNav() {
+  const stage = $('stage');
+
+  stage.addEventListener('wheel', (e) => {
+    if (!S.proj) return;
+    e.preventDefault();                       // the wheel zooms here, never scrolls
+    // line and page deltas need scaling up to feel the same as pixel ones
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    const dy = e.deltaY * unit;
+    const current = S.zoom === 'fit' ? S.scale * 100 : S.zoom;
+    zoomAt(current * Math.exp(-dy * 0.0015), e.clientX, e.clientY);
+  }, { passive: false });
+
+  // once the wheel is spoken for, panning needs its own gesture
+  let pan = null;
+  stage.addEventListener('mousedown', (e) => {
+    if (e.button === 1) e.preventDefault();   // no middle-click autoscroll
+  });
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.button !== 1) return;
+    e.preventDefault();
+    pan = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop };
+    stage.setPointerCapture(e.pointerId);
+    stage.classList.add('panning');
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!pan) return;
+    stage.scrollLeft = pan.sl - (e.clientX - pan.x);
+    stage.scrollTop = pan.st - (e.clientY - pan.y);
+  });
+  const endPan = () => { pan = null; stage.classList.remove('panning'); };
+  stage.addEventListener('pointerup', endPan);
+  stage.addEventListener('pointercancel', endPan);
+}
+
 function initTimeline() {
   const cv = $('timeline');
   let scrubbing = false;
@@ -1105,6 +1164,9 @@ function initKeys() {
       case 'Escape': select(null); break;
       case 'b': case 'B': $('previewBlur').checked = !$('previewBlur').checked;
         S.rev++; loadFrame(); break;
+      case '+': case '=': e.preventDefault(); nudgeZoom(1.25); break;
+      case '-': case '_': e.preventDefault(); nudgeZoom(1 / 1.25); break;
+      case '0': e.preventDefault(); fitZoom(); break;
       case 'c': case 'C': e.preventDefault(); copyFromPrevious(); break;
       case '[': { e.preventDefault(); stopPlay();
         const f = prevMarked(S.frame); if (f >= 0) goto(f); break; }
@@ -1246,7 +1308,7 @@ function fmtDur(s) {
 
 /* ====================================================================== */
 
-initStart(); initCanvas(); initPanel(); initTimeline();
+initStart(); initCanvas(); initPanel(); initStageNav(); initTimeline();
 initTransport(); initKeys(); initExport();
 
 // reopening the page lands you back in the clip you were working on

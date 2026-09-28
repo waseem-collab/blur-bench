@@ -218,10 +218,13 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .stage-col{flex:1;display:flex;flex-direction:column;min-width:0}
 
 /* the well */
-.stage{flex:1;position:relative;overflow:auto;padding:26px;
-  display:flex;align-items:center;justify-content:center;
+.stage-wrap{position:relative;flex:1;min-height:0}
+.stage{position:absolute;inset:0;overflow:auto;padding:26px;display:flex;
+  overscroll-behavior:contain;
   background:radial-gradient(120% 120% at 50% 40%,#151815 0%,#0B0D0B 100%)}
-.stage-inner{position:relative;line-height:0}
+.stage.panning{cursor:grabbing}
+.stage.panning canvas{cursor:grabbing!important}
+.stage-inner{position:relative;line-height:0;margin:auto;flex:0 0 auto}
 .stage-inner img{display:block;max-width:none;user-select:none;-webkit-user-drag:none}
 .stage-inner canvas{position:absolute;inset:0;cursor:crosshair;touch-action:none}
 /* registration marks, like a film gate */
@@ -232,7 +235,7 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .reg i:nth-child(3){bottom:0;left:0;border-right:0;border-top:0}
 .reg i:nth-child(4){bottom:0;right:0;border-left:0;border-top:0}
 
-.loading{position:absolute;top:0;right:0;padding:10px}
+.loading{position:absolute;top:0;right:0;padding:10px;pointer-events:none}
 .spinner{width:14px;height:14px;border:1.5px solid #333A32;border-top-color:var(--lamp);
   border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
