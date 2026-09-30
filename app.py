@@ -22,6 +22,12 @@ WORKSPACE = BASE / "workspace"
 WORKSPACE.mkdir(exist_ok=True)
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv", ".flv", ".ts"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
+MEDIA_EXTS = VIDEO_EXTS | IMAGE_EXTS
+
+
+def is_image(path) -> bool:
+    return Path(path).suffix.lower() in IMAGE_EXTS
 
 app = Flask(__name__, static_folder=str(BASE / "static"), static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024 * 1024  # 16 GB uploads
@@ -40,10 +46,18 @@ def project_dir(pid: str) -> Path:
     return d
 
 
+def ensure_media(p: dict) -> dict:
+    """Projects made before stills were supported carry no media field."""
+    meta = p.setdefault("meta", {})
+    if not meta.get("media"):
+        meta["media"] = "image" if is_image(p.get("source", "")) else "video"
+    return p
+
+
 def load_project(pid: str) -> dict:
     d = project_dir(pid)
     with open(d / "project.json") as fh:
-        return json.load(fh)
+        return ensure_media(json.load(fh))
 
 
 def save_project(pid: str, data: dict) -> None:
@@ -55,8 +69,18 @@ def save_project(pid: str, data: dict) -> None:
 
 
 def probe(path: Path) -> dict:
-    """Pull video metadata, preferring ffprobe and falling back to OpenCV."""
-    meta = {"width": 0, "height": 0, "fps": 0.0, "frames": 0, "duration": 0.0, "has_audio": False}
+    """Measure the media. A still image is treated as a clip of one frame."""
+    if is_image(path):
+        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("could not read that image — unsupported or corrupt file")
+        h, w = img.shape[:2]
+        return {"media": "image", "width": int(w), "height": int(h), "fps": 1.0,
+                "frames": 1, "duration": 0.0, "has_audio": False,
+                "codec": Path(path).suffix.lstrip(".").lower()}
+
+    meta = {"media": "video", "width": 0, "height": 0, "fps": 0.0, "frames": 0,
+            "duration": 0.0, "has_audio": False}
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-print_format", "json",
@@ -148,6 +172,21 @@ class Reader:
             self.cap.release()
 
 
+class StillReader:
+    """Stands in for Reader when the source is a single image."""
+
+    def __init__(self, path: Path):
+        self.img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        self.touched = time.time()
+
+    def frame(self, n: int):
+        self.touched = time.time()
+        return None if self.img is None else self.img.copy()
+
+    def close(self):
+        self.img = None
+
+
 _readers: dict[str, Reader] = {}
 _readers_lock = threading.Lock()
 
@@ -156,7 +195,7 @@ def get_reader(pid: str, path: Path) -> Reader:
     with _readers_lock:
         r = _readers.get(pid)
         if r is None:
-            r = Reader(path)
+            r = StillReader(path) if is_image(path) else Reader(path)
             _readers[pid] = r
         # drop readers nobody has touched in 10 minutes
         for key in [k for k, v in _readers.items() if k != pid and time.time() - v.touched > 600]:
@@ -285,7 +324,7 @@ def list_projects():
         f = d / "project.json"
         if d.is_dir() and f.exists():
             try:
-                p = json.loads(f.read_text())
+                p = ensure_media(json.loads(f.read_text()))
                 items.append({
                     "id": p["id"], "name": p["name"], "meta": p["meta"],
                     "shapes": len(p.get("shapes", [])),
@@ -343,8 +382,8 @@ def open_path():
     src = Path(os.path.expanduser(raw)).resolve()
     if not src.is_file():
         abort(400, f"no such file: {src}")
-    if src.suffix.lower() not in VIDEO_EXTS:
-        abort(400, f"not a recognised video extension: {src.suffix}")
+    if src.suffix.lower() not in MEDIA_EXTS:
+        abort(400, f"not a video or image this can open: {src.suffix}")
     # reuse an existing project for the same file instead of making a duplicate
     for d in WORKSPACE.iterdir():
         f = d / "project.json"
@@ -392,8 +431,9 @@ def browse():
                 continue
             if e.is_dir():
                 dirs.append({"name": e.name, "path": str(e)})
-            elif e.suffix.lower() in VIDEO_EXTS:
-                files.append({"name": e.name, "path": str(e), "size": e.stat().st_size})
+            elif e.suffix.lower() in MEDIA_EXTS:
+                files.append({"name": e.name, "path": str(e), "size": e.stat().st_size,
+                              "image": e.suffix.lower() in IMAGE_EXTS})
     except PermissionError:
         abort(403, "permission denied")
     return jsonify({
@@ -574,6 +614,61 @@ def run_export(job_id: str, project: dict, shapes: list, opts: dict):
     job.update(state="error", note=last_err[:500] or "export failed")
 
 
+def run_image_export(job_id: str, project: dict, shapes: list, opts: dict):
+    """Cover the marked spots on a still and write it out as a new file."""
+    job = JOBS[job_id]
+    job.update(state="running", progress=0.0, frame=0, total=1, note="covering")
+    src = Path(project["source"])
+    raw = cv2.imread(str(src), cv2.IMREAD_UNCHANGED)
+    if raw is None:
+        job.update(state="error", note="could not read the image")
+        return
+    if raw.dtype != np.uint8:                     # 16-bit and float images
+        raw = cv2.normalize(raw, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    # cover the BGR channels, then put back whatever else the file carried
+    alpha = None
+    if raw.ndim == 2:
+        kind, img = "gray", cv2.cvtColor(raw, cv2.COLOR_GRAY2BGR)
+    elif raw.shape[2] == 4:
+        kind, img, alpha = "bgra", raw[:, :, :3].copy(), raw[:, :, 3]
+    else:
+        kind, img = "bgr", raw[:, :, :3].copy()
+
+    render(img, shapes, 0)
+
+    if kind == "gray":
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    elif kind == "bgra":
+        img = np.dstack([img, alpha])
+
+    fmt = str(opts.get("format", "png")).lower()
+    if fmt not in ("png", "jpg"):
+        fmt = "png"
+    out_dir = WORKSPACE / project["id"]
+    if opts.get("beside") and project.get("linked") and os.access(src.parent, os.W_OK):
+        out_dir = src.parent
+    stem = Path(opts.get("filename") or (Path(project["name"]).stem + "-blurred")).stem
+    out_path = out_dir / f"{stem}.{fmt}"
+    if out_path.resolve() == src.resolve():
+        out_path = out_path.with_name(f"{stem}-blurred.{fmt}")
+
+    if fmt == "jpg" and img.ndim == 3 and img.shape[2] == 4:
+        img = img[:, :, :3]                       # jpeg cannot carry transparency
+    params = ([cv2.IMWRITE_JPEG_QUALITY, int(opts.get("quality", 92))] if fmt == "jpg"
+              else [cv2.IMWRITE_PNG_COMPRESSION, 6])
+    try:
+        ok = cv2.imwrite(str(out_path), img, params)
+    except Exception as e:
+        job.update(state="error", note=str(e)[:300])
+        return
+    if not ok:
+        job.update(state="error", note="could not write the image")
+        return
+    job.update(state="done", progress=1.0, frame=1, note="finished",
+               output=str(out_path), size=out_path.stat().st_size, audio=False)
+
+
 @app.post("/api/project/<pid>/export")
 def start_export(pid):
     p = load_project(pid)
@@ -586,7 +681,8 @@ def start_export(pid):
     with JOBS_LOCK:
         JOBS[job_id] = {"id": job_id, "project": pid, "state": "queued",
                         "progress": 0.0, "note": "starting"}
-    threading.Thread(target=run_export, args=(job_id, p, shapes, body),
+    worker = (run_image_export if p["meta"].get("media") == "image" else run_export)
+    threading.Thread(target=worker, args=(job_id, p, shapes, body),
                      daemon=True).start()
     return jsonify({"job": job_id})
 

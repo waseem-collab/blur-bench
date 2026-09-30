@@ -145,7 +145,7 @@ async function openBrowser(path) {
   if (data.parent) row('&#8593;', 'up a level', 'dir', () => openBrowser(data.parent));
   data.dirs.forEach(d => row('&#9656;', d.name, 'dir', () => openBrowser(d.path)));
   data.files.forEach(f => {
-    const r = row('&#9673;', f.name, 'video', async () => {
+    const r = row(f.image ? '&#9635;' : '&#9673;', f.name, 'video', async () => {
       try {
         const p = await api('/api/open-path', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -178,10 +178,19 @@ async function openProject(id) {
   $('editor').hidden = false;
   $('vidName').textContent = p.name;
   const m = p.meta;
-  $('vidMeta').textContent =
-    `${m.width}\u00d7${m.height}, ${m.fps.toFixed(2)} fps, ${m.frames} frames, ` +
-    `${fmtTime(m.duration).replace(/\.\d+$/, '')} long, ` +
-    `${m.has_audio ? 'with sound' : 'no sound'}`;
+  const still = m.media === 'image';
+  $('editor').classList.toggle('is-image', still);
+  $('vidMeta').textContent = still
+    ? `${m.width}\u00d7${m.height} image`
+    : `${m.width}\u00d7${m.height}, ${m.fps.toFixed(2)} fps, ${m.frames} frames, ` +
+      `${fmtTime(m.duration).replace(/\.\d+$/, '')} long, ` +
+      `${m.has_audio ? 'with sound' : 'no sound'}`;
+  $('hint').textContent = still
+    ? 'Drag across the picture to cover something'
+    : 'Drag across the picture to cover something on this frame';
+  $('emptyShapes').textContent = still
+    ? 'Nothing covered yet. Drag across the picture.'
+    : 'Nothing covered on this frame. Drag across the picture.';
   $('frameTotal').textContent = 'of ' + (m.frames - 1);
   $('frameNum').max = m.frames - 1;
   fitZoom();
@@ -355,6 +364,8 @@ function writeGeom(sh, f, g, kind) {
     }
   }
 }
+
+function isImage() { return S.proj && S.proj.meta.media === 'image'; }
 
 function selected() { return S.shapes.find(s => s.id === S.sel) || null; }
 
@@ -724,15 +735,17 @@ function renderShapeList() {
   const here = onFrame(S.frame);
   const list = S.scope === 'all' ? S.shapes : here;
 
-  $('shapeCount').textContent = S.scope === 'all'
+  $('shapeCount').textContent = (isImage() || S.scope === 'all')
     ? S.shapes.length
     : `${here.length} of ${S.shapes.length}`;
   $('emptyShapes').hidden = list.length > 0;
-  $('emptyShapes').textContent = S.scope === 'all'
-    ? 'Nothing covered anywhere yet. Drag across the picture.'
-    : (S.shapes.length
-      ? 'Nothing on this frame. Drag across the picture, or copy the previous frame.'
-      : 'Nothing covered on this frame. Drag across the picture.');
+  if (!isImage()) {
+    $('emptyShapes').textContent = S.scope === 'all'
+      ? 'Nothing covered anywhere yet. Drag across the picture.'
+      : (S.shapes.length
+        ? 'Nothing on this frame. Drag across the picture, or copy the previous frame.'
+        : 'Nothing covered on this frame. Drag across the picture.');
+  }
   $('hint').style.opacity = S.shapes.length ? 0 : 1;
   syncCopyBtn();
 
@@ -744,7 +757,7 @@ function renderShapeList() {
     li.style.color = sh.color;
     li.innerHTML = `<span class="gel ${sh.kind === 'rect' ? 'box' : ''}" style="background:${sh.color}"></span>
       <span class="sn">${esc(sh.name)}</span>
-      <span class="sr">${sh.start === sh.end ? sh.start : sh.start + '\u2013' + sh.end}</span>
+      <span class="sr">${isImage() ? '' : (sh.start === sh.end ? sh.start : sh.start + '\u2013' + sh.end)}</span>
       <span class="eye" title="${sh.enabled ? 'Leave this one out' : 'Put this one back'}">${sh.enabled ? '&#9673;' : '&#9675;'}</span>`;
     li.onclick = () => {
       if (!live) goto(sh.start);        // an oval from another frame takes you there
@@ -772,7 +785,7 @@ function syncProps() {
   const single = sh.start === sh.end;
   $('scopeToggle').querySelectorAll('button').forEach(b =>
     b.classList.toggle('on', (b.dataset.mode === 'one') === single));
-  $('rangeFields').hidden = single;
+  $('rangeFields').hidden = single || isImage();
   $('trackBox').hidden = single;        // interpolation means nothing on one frame
   $('pStart').value = sh.start; $('pEnd').value = sh.end;
   $('pStart').max = $('pEnd').max = S.proj.meta.frames - 1;
@@ -1184,6 +1197,9 @@ let pollTimer = null;
 
 function openExport() {
   const m = S.proj.meta;
+  const still = isImage();
+  $('xVideoOpts').hidden = still;
+  $('xImageOpts').hidden = !still;
   $('exportModal').hidden = false;
   $('exportForm').hidden = false;
   $('exportProgress').hidden = true;
@@ -1197,10 +1213,28 @@ function openExport() {
   $('xAudio').disabled = !m.has_audio;
   $('xAudio').checked = !!m.has_audio;
   $('xBesideRow').hidden = !S.proj.linked;   // only meaningful for a file opened in place
+  $('xQualityRow').hidden = imageFormat() !== 'jpg';
   updateSummary();
 }
 
+function imageFormat() {
+  const on = $('xFormat').querySelector('button.on');
+  return on ? on.dataset.format : 'png';
+}
+
 function updateSummary() {
+  if (isImage()) {
+    const active = S.shapes.filter(s => s.enabled);
+    const skipped = S.shapes.length - active.length;
+    const fmt = imageFormat();
+    $('xSummary').innerHTML =
+      (active.length
+        ? `<b>${active.length}</b> shape${active.length === 1 ? '' : 's'} will be covered`
+        : 'No shapes yet, so nothing will be covered') +
+      (skipped > 0 ? `, ${skipped} left out` : '') +
+      `. Saved as ${fmt === 'png' ? 'a PNG, pixel for pixel' : 'a JPEG'}.`;
+    return;
+  }
   const a = +$('xStart').value, b = +$('xEnd').value;
   const n = Math.max(0, b - a + 1);
   const active = S.shapes.filter(s => s.enabled && s.end >= a && s.start <= b);
@@ -1220,6 +1254,14 @@ function initExport() {
     $('xStart').value = 0; $('xEnd').value = S.proj.meta.frames - 1; updateSummary();
   };
   $('xCrf').oninput = (e) => $('xCrfVal').textContent = e.target.value;
+  $('xQuality').oninput = (e) => $('xQualityVal').textContent = e.target.value;
+  $('xFormat').querySelectorAll('button').forEach(b => {
+    b.onclick = () => {
+      $('xFormat').querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b));
+      $('xQualityRow').hidden = b.dataset.format !== 'jpg';
+      updateSummary();
+    };
+  });
   $('xStartBtn').onclick = startExport;
   $('xCancel').onclick = async () => {
     if (S.job) await api(`/api/export/${S.job}/cancel`, { method: 'POST' });
@@ -1246,6 +1288,8 @@ async function startExport() {
         preset: $('xPreset').value,
         audio: $('xAudio').checked,
         beside: $('xBeside').checked,
+        format: imageFormat(),
+        quality: +$('xQuality').value,
       }),
     });
     S.job = res.job;
@@ -1273,7 +1317,7 @@ function poll() {
     $('xFill').style.width = pct + '%';
     $('xPct').textContent = pct + '%';
     $('xNote').textContent = j.note || j.state;
-    $('xStats').textContent = j.total
+    $('xStats').textContent = (j.total && !isImage())
       ? `frame ${j.frame || 0} of ${j.total}` +
         (j.fps ? `, ${j.fps} a second` : '') +
         (j.eta != null ? `, about ${fmtDur(j.eta)} left` : '')
@@ -1284,8 +1328,9 @@ function poll() {
       $('xCancel').hidden = true;
       $('xDownload').hidden = false;
       $('xDownload').href = `/api/export/${S.job}/download`;
-      $('xDoneInfo').textContent =
-        `${(j.size / 1048576).toFixed(1)} MB, ${j.audio ? 'sound kept' : 'no sound'}.`;
+      $('xDoneInfo').textContent = isImage()
+        ? `${(j.size / 1024).toFixed(0)} KB.`
+        : `${(j.size / 1048576).toFixed(1)} MB, ${j.audio ? 'sound kept' : 'no sound'}.`;
       $('xPathInfo').textContent = j.output;
       return;
     }

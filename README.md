@@ -1,6 +1,7 @@
 # Blur Bench
 
-A local tool for hiding things in a video. Open a clip, step to the exact frame,
+A local tool for hiding things in a video or a photo. Open a clip, step to the
+exact frame,
 draw over what should not be seen, and export a copy with those spots blurred
 out. The video never leaves your machine.
 
@@ -89,6 +90,18 @@ Set a shape to cover *a run of frames* and it applies from its first frame to it
 last. Such a shape can also move: turn on **Follow something that moves** and
 every repositioning on a new frame is recorded, with it gliding between
 those positions.
+
+## Working on a photo
+
+Still images (`.jpg .png .bmp .webp .tif`) open the same way as video and are
+treated as a clip of one frame, so drawing, editing, the three cover effects and
+the blurred preview all behave identically. The parts that only make sense over
+time are simply not there. Zoom still is.
+
+Exporting asks only for a name and a format. **PNG** is lossless — everything
+outside your shapes comes out pixel for pixel identical to the original. **JPEG**
+has a quality slider. Transparency and greyscale are carried through to a PNG
+export rather than being flattened; a 16-bit image is written back as 8-bit.
 
 ## Exporting
 

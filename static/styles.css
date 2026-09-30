@@ -266,6 +266,13 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .panel-head h3{font-family:var(--cond);font-size:16px;display:flex;align-items:baseline;gap:8px}
 .count{font:12px var(--mono);color:var(--dim)}
 
+.is-image [data-video-only],
+.is-image .timeline,
+.is-image .group.playback,
+.is-image .group.counter,
+.is-image .group.marks{display:none!important}
+.is-image .transport{border-top:1px solid var(--edge);padding-top:9px}
+
 .seg{display:inline-flex;border:1px solid var(--edge);border-radius:var(--r);overflow:hidden}
 .seg button{background:transparent;border:0;padding:4px 9px;font-size:11.5px;
   color:var(--dust);cursor:pointer;transition:background .12s,color .12s}
