@@ -902,7 +902,8 @@ function initPanel() {
     S.shapes.push(sh); S.sel = sh.id; afterChange();
     if (S.newScope === 'track' && !isImage()) followShape(sh, S.frame);
   };
-  $('delShape').onclick = deleteSelected;
+  $('delShape').onclick = deleteHere;
+  $('delAll').onclick = deleteEverywhere;
   $('copyPrev').onclick = copyFromPrevious;
   $('newKind').querySelectorAll('button').forEach(b => {
     b.onclick = () => {
@@ -987,7 +988,58 @@ function initPanel() {
   });
 }
 
-function deleteSelected() {
+/** The shape's geometry on frame f, frozen into a key. Call before trimming. */
+function keyFrom(sh, f) {
+  const g = geomAt(sh, f);
+  return g ? { f, cx: g.cx, cy: g.cy, rx: g.rx, ry: g.ry, ang: g.ang } : null;
+}
+
+/** Move a shape's first frame to `from`, keeping the size it had there. */
+function trimFront(sh, from) {
+  const edge = keyFrom(sh, from);
+  sh.keys = (sh.keys || []).filter(k => k.f > from);
+  if (edge) sh.keys.unshift(edge);
+  sh.keys.sort((x, y) => x.f - y.f);
+  sh.start = from;
+}
+
+/** Move a shape's last frame to `to`, keeping the size it had there. */
+function trimBack(sh, to) {
+  const edge = keyFrom(sh, to);
+  sh.keys = (sh.keys || []).filter(k => k.f < to);
+  if (edge) sh.keys.push(edge);
+  sh.keys.sort((x, y) => x.f - y.f);
+  sh.end = to;
+}
+
+/**
+ * Uncover this one frame and leave the rest of the run alone. A shape that
+ * only lived here goes entirely; one that spans frames is trimmed at its edge,
+ * or split in two when the frame is somewhere in the middle.
+ */
+function deleteHere() {
+  const sh = selected();
+  if (!sh) return;
+  const f = S.frame;
+  if (sh.start === sh.end || !geomAt(sh, f)) { deleteEverywhere(); return; }
+
+  snapshot();
+  if (f === sh.start) {
+    trimFront(sh, f + 1);
+  } else if (f === sh.end) {
+    trimBack(sh, f - 1);
+  } else {
+    const rest = JSON.parse(JSON.stringify(sh));   // copy before either is cut
+    rest.id = newId();
+    trimBack(sh, f - 1);
+    trimFront(rest, f + 1);
+    S.shapes.splice(S.shapes.indexOf(sh) + 1, 0, rest);
+  }
+  S.sel = null;
+  afterChange();
+}
+
+function deleteEverywhere() {
   const sh = selected(); if (!sh) return;
   snapshot();
   S.shapes = S.shapes.filter(s => s.id !== sh.id);
@@ -1275,7 +1327,10 @@ function initKeys() {
       case 'Home': e.preventDefault(); stopPlay(); goto(0); break;
       case 'End': e.preventDefault(); stopPlay(); goto(S.proj.meta.frames - 1); break;
       case ' ': e.preventDefault(); togglePlay(); break;
-      case 'Delete': case 'Backspace': e.preventDefault(); deleteSelected(); break;
+      case 'Delete': case 'Backspace':
+        e.preventDefault();
+        e.shiftKey ? deleteEverywhere() : deleteHere();
+        break;
       case 'Escape': select(null); break;
       case 'b': case 'B': $('previewBlur').checked = !$('previewBlur').checked;
         S.rev++; loadFrame(); break;

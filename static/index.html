@@ -172,7 +172,7 @@
       <div class="panel-section" id="props" hidden>
         <div class="panel-head">
           <h3 id="propsTitle">Shape</h3>
-          <button class="icon-btn danger" id="delShape" title="Delete this shape (Del)" aria-label="Delete">&#10005;</button>
+          <button class="icon-btn danger" id="delShape" title="Uncover this frame only (Del)" aria-label="Uncover this frame">&#10005;</button>
         </div>
 
         <div class="slate" id="slate">
@@ -237,6 +237,7 @@
           </div>
 
           <div class="btn-row">
+            <button class="btn ghost small" id="delAll" data-video-only>Remove it everywhere</button>
             <button class="btn ghost small" id="dupShape">Duplicate</button>
             <button class="btn ghost small" id="applyAll">Match all shapes to this</button>
           </div>
@@ -252,7 +253,8 @@
           <li>See it blurred <span><kbd>B</kbd></span></li>
           <li data-video-only>Frame with a shape <span><kbd>[</kbd> <kbd>]</kbd></span></li>
           <li data-video-only>Copy from previous <span><kbd>C</kbd></span></li>
-          <li>Delete the shape <span><kbd>Del</kbd></span></li>
+          <li>Uncover this frame <span><kbd>Del</kbd></span></li>
+          <li data-video-only>Remove it everywhere <span><kbd>Shift</kbd> <kbd>Del</kbd></span></li>
           <li>Duplicate it <span><kbd>Ctrl</kbd> <kbd>D</kbd></span></li>
           <li>Undo, redo <span><kbd>Ctrl</kbd> <kbd>Z</kbd></span></li>
           <li>Zoom <span>scroll, or <kbd>+</kbd> <kbd>-</kbd></span></li>
