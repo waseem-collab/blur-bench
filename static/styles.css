@@ -273,6 +273,10 @@ kbd{background:var(--rail);border:1px solid var(--edge);border-radius:2px;
 .is-image .group.marks{display:none!important}
 .is-image .transport{border-top:1px solid var(--edge);padding-top:9px}
 
+#trackBar{border-left:2px solid var(--lamp);background:#1D2019;padding:10px 12px;margin-top:4px}
+#trackBar .upload-label{font-size:12px}
+#trackOpts{border-left:2px solid var(--edge);padding-left:12px;margin-bottom:4px}
+
 .seg{display:inline-flex;border:1px solid var(--edge);border-radius:var(--r);overflow:hidden}
 .seg button{background:transparent;border:0;padding:4px 9px;font-size:11.5px;
   color:var(--dust);cursor:pointer;transition:background .12s,color .12s}

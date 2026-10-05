@@ -5,6 +5,7 @@ Pick a video, step through it frame by frame, draw ovals over anything you want
 hidden, then export a copy of the video with those regions blurred.
 """
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -306,6 +307,294 @@ def render(frame: np.ndarray, shapes: list, n: int) -> np.ndarray:
         if geom:
             obscure(frame, s, geom)
     return frame
+
+
+# --------------------------------------------------------------------------
+# following an object through the clip
+# --------------------------------------------------------------------------
+
+class FlowTracker:
+    """Median flow. A grid of points inside the box is pushed forward with
+    Lucas-Kanade and then back again; the points that come home are the ones we
+    trust, and their median shift and spread give the new box. Built on the
+    plain OpenCV build, and it says so honestly when it loses the object."""
+
+    LK = dict(winSize=(21, 21), maxLevel=3,
+              criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))
+    GRID = 11
+    MIN_POINTS = 8
+    MAX_FB = 12.0          # px of forward-backward error before we call it lost
+
+    def __init__(self):
+        self.prev = None
+        self.box = None
+
+    def init(self, frame, box):
+        self.prev = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        self.box = tuple(float(v) for v in box)
+        return True
+
+    def _grid(self):
+        x, y, w, h = self.box
+        mx, my = w * 0.08, h * 0.08
+        xs = np.linspace(x + mx, x + w - mx, self.GRID)
+        ys = np.linspace(y + my, y + h - my, self.GRID)
+        return np.array([[a, b] for b in ys for a in xs], np.float32).reshape(-1, 1, 2)
+
+    def update(self, frame):
+        if self.prev is None:
+            return False, self.box
+        cur = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        p0 = self._grid()
+        p1, s1, _ = cv2.calcOpticalFlowPyrLK(self.prev, cur, p0, None, **self.LK)
+        if p1 is None:
+            return False, self.box
+        back, s2, _ = cv2.calcOpticalFlowPyrLK(cur, self.prev, p1, None, **self.LK)
+        if back is None:
+            return False, self.box
+
+        ok = (s1.ravel() == 1) & (s2.ravel() == 1)
+        fb = np.linalg.norm((p0 - back).reshape(-1, 2), axis=1)
+        if ok.sum() < self.MIN_POINTS:
+            return False, self.box
+        keep = ok & (fb <= max(1.0, float(np.median(fb[ok]))))
+        if keep.sum() < self.MIN_POINTS:
+            keep = ok
+        if float(np.median(fb[keep])) > self.MAX_FB:
+            return False, self.box
+
+        a = p0.reshape(-1, 2)[keep]
+        b = p1.reshape(-1, 2)[keep]
+        dx = float(np.median(b[:, 0] - a[:, 0]))
+        dy = float(np.median(b[:, 1] - a[:, 1]))
+
+        scale = 1.0
+        if len(a) >= 4:                      # every pair of points votes on scale
+            ia, ib = np.triu_indices(len(a), 1)
+            d0 = np.linalg.norm(a[ia] - a[ib], axis=1)
+            d1 = np.linalg.norm(b[ia] - b[ib], axis=1)
+            m = d0 > 1e-3
+            if m.any():
+                scale = float(np.median(d1[m] / d0[m]))
+        scale = min(max(scale, 0.85), 1.18)  # no wild jumps between frames
+
+        x, y, w, h = self.box
+        cx, cy = x + w / 2 + dx, y + h / 2 + dy
+        w, h = w * scale, h * scale
+        self.box = (cx - w / 2, cy - h / 2, w, h)
+        self.prev = cur
+        return True, self.box
+
+
+class BoxTracker:
+    """Wraps an OpenCV tracker, which wants whole-pixel boxes."""
+
+    def __init__(self, factory):
+        self.t = factory()
+
+    def init(self, frame, box):
+        return self.t.init(frame, tuple(int(round(v)) for v in box))
+
+    def update(self, frame):
+        return self.t.update(frame)
+
+
+def tracker_catalogue() -> list:
+    """Which trackers this OpenCV build can actually offer."""
+    out = [{"id": "flow", "label": "Motion",
+            "note": "follows how the picture moves — quick, and good with "
+                    "something that drifts or changes size"}]
+    if hasattr(cv2, "TrackerCSRT_create"):
+        out.insert(0, {"id": "csrt", "label": "Accurate",
+                       "note": "slower, but holds on through clutter"})
+    if hasattr(cv2, "TrackerKCF_create"):
+        out.append({"id": "kcf", "label": "Quick", "note": "fast, struggles when the size changes"})
+    if hasattr(cv2, "TrackerMIL_create"):
+        out.append({"id": "mil", "label": "Appearance",
+                    "note": "learns how the thing looks — steadier when it turns, "
+                            "but it will not resize"})
+    return out
+
+
+def make_tracker(kind: str):
+    if kind == "csrt" and hasattr(cv2, "TrackerCSRT_create"):
+        return BoxTracker(cv2.TrackerCSRT_create)
+    if kind == "kcf" and hasattr(cv2, "TrackerKCF_create"):
+        return BoxTracker(cv2.TrackerKCF_create)
+    if kind == "mil" and hasattr(cv2, "TrackerMIL_create"):
+        return BoxTracker(cv2.TrackerMIL_create)
+    return FlowTracker()
+
+
+def half_extent(kind: str, rx: float, ry: float, ang: float):
+    """Half width and height of the box that just contains the shape."""
+    a = math.radians(ang)
+    c, s = abs(math.cos(a)), abs(math.sin(a))
+    if kind == "rect":
+        return rx * c + ry * s, rx * s + ry * c
+    return math.hypot(rx * c, ry * s), math.hypot(rx * s, ry * c)
+
+
+def simplify_keys(keys: list, tol: float = 0.75, run: int = 60) -> list:
+    """Drop positions that a straight line between their neighbours already
+    predicts to within `tol` pixels, so a long follow stays a small file."""
+    if len(keys) <= 2:
+        return list(keys)
+
+    def fits(a: int, b: int) -> bool:
+        ka, kb = keys[a], keys[b]
+        span = kb["f"] - ka["f"]
+        if span <= 0:
+            return False
+        for m in range(a + 1, b):
+            km = keys[m]
+            t = (km["f"] - ka["f"]) / span
+            for fld in ("cx", "cy", "rx", "ry"):
+                if abs(ka[fld] + (kb[fld] - ka[fld]) * t - km[fld]) > tol:
+                    return False
+        return True
+
+    out = [keys[0]]
+    a, b = 0, 2
+    while b < len(keys):
+        if b - a <= run and fits(a, b):
+            b += 1
+        else:
+            out.append(keys[b - 1])
+            a = b - 1
+            b = a + 2
+    out.append(keys[-1])
+    return out
+
+
+def run_track(job_id: str, project: dict, req: dict):
+    job = JOBS[job_id]
+    shape = req.get("shape") or {}
+    kind = shape.get("kind", "oval")
+    total = project["meta"]["frames"]
+    f0 = max(0, min(int(req.get("from", 0)), total - 1))
+    f1 = max(f0, min(int(req.get("to", total - 1)), total - 1))
+    count = max(1, f1 - f0)
+
+    geom = shape_at(shape, f0)
+    if geom is None:
+        ks = sorted(shape.get("keys") or [], key=lambda k: k["f"])
+        if not ks:
+            job.update(state="error", note="that shape has no position to start from")
+            return
+        k = min(ks, key=lambda k: abs(k["f"] - f0))
+        geom = (k["cx"], k["cy"], k["rx"], k["ry"], k.get("ang", 0.0))
+    cx, cy, rx, ry, ang = geom
+
+    hx, hy = half_extent(kind, rx, ry, ang)
+    if hx < 2 or hy < 2:
+        job.update(state="error", note="that shape is too small to follow")
+        return
+    # keep the shape's size relative to its box, so a turned shape stays its size
+    ratio_x, ratio_y = rx / hx, ry / hy
+
+    W, H = project["meta"]["width"], project["meta"]["height"]
+    reader = Reader(Path(project["source"]))
+    try:
+        first = reader.frame(f0)
+        if first is None:
+            job.update(state="error", note=f"could not read frame {f0}")
+            return
+        x0 = max(0.0, cx - hx)
+        y0 = max(0.0, cy - hy)
+        box = (x0, y0, min(hx * 2, W - x0), min(hy * 2, H - y0))
+        if box[2] < 4 or box[3] < 4:
+            job.update(state="error", note="that shape is too small to follow")
+            return
+
+        tracker = make_tracker(req.get("tracker", "flow"))
+        try:
+            tracker.init(first, box)
+        except Exception as e:
+            job.update(state="error", note=f"could not start following: {e}")
+            return
+
+        keys = [{"f": f0, "cx": cx, "cy": cy, "rx": rx, "ry": ry, "ang": ang}]
+        job.update(state="running", progress=0.0, frame=0, total=count,
+                   note="following", reason="")
+        t0 = time.time()
+        reason = "reached the end of the clip"
+
+        for n in range(f0 + 1, f1 + 1):
+            if job.get("cancel"):
+                reason = "stopped"
+                break
+            img = reader.frame(n)
+            if img is None:
+                reason = f"could not read frame {n}"
+                break
+            try:
+                ok, b = tracker.update(img)
+            except Exception:
+                ok, b = False, None
+            if not ok or b is None:
+                reason = f"lost it at frame {n}"
+                break
+            x, y, w, h = (float(v) for v in b)
+            ncx, ncy = x + w / 2, y + h / 2
+            if w < 4 or h < 4:
+                reason = f"it got too small at frame {n}"
+                break
+            if not (-w <= ncx <= W + w and -h <= ncy <= H + h):
+                reason = f"it left the picture at frame {n}"
+                break
+            keys.append({"f": n, "cx": ncx, "cy": ncy,
+                         "rx": (w / 2) * ratio_x, "ry": (h / 2) * ratio_y, "ang": ang})
+
+            done = n - f0
+            if done % 4 == 0 or n == f1:
+                el = time.time() - t0
+                rate = done / el if el > 0 else 0
+                job.update(frame=done, progress=done / count, fps=round(rate, 1),
+                           eta=round((count - done) / rate) if rate > 0 else None)
+    finally:
+        reader.close()
+
+    trimmed = simplify_keys(keys)
+    job.update(state="done", progress=1.0, note=reason, reason=reason,
+               keys=trimmed, raw=len(keys), kept=len(trimmed),
+               first=keys[0]["f"], last=keys[-1]["f"])
+
+
+@app.get("/api/trackers")
+def list_trackers():
+    return jsonify(tracker_catalogue())
+
+
+@app.post("/api/project/<pid>/track")
+def start_track(pid):
+    p = load_project(pid)
+    if p["meta"].get("media") == "image":
+        abort(400, "there is nothing to follow in a single picture")
+    body = request.json or {}
+    job_id = uuid.uuid4().hex[:10]
+    with JOBS_LOCK:
+        JOBS[job_id] = {"id": job_id, "project": pid, "state": "queued",
+                        "progress": 0.0, "note": "starting"}
+    threading.Thread(target=run_track, args=(job_id, p, body), daemon=True).start()
+    return jsonify({"job": job_id})
+
+
+@app.get("/api/track/<job_id>")
+def track_status(job_id):
+    job = JOBS.get(job_id)
+    if not job:
+        abort(404, "no such job")
+    return jsonify({k: v for k, v in job.items() if k != "cancel"})
+
+
+@app.post("/api/track/<job_id>/cancel")
+def track_cancel(job_id):
+    job = JOBS.get(job_id)
+    if not job:
+        abort(404, "no such job")
+    job["cancel"] = True
+    return jsonify({"ok": True})
 
 
 # --------------------------------------------------------------------------

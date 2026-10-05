@@ -133,12 +133,27 @@
           <button data-kind="rect">Rectangle</button>
         </div>
         <div class="seg wide" id="newScope" data-video-only>
-          <button data-scope="one" class="on">Just this frame</button>
-          <button data-scope="all">The whole video</button>
+          <button data-scope="one" class="on">This frame</button>
+          <button data-scope="all">Whole video</button>
+          <button data-scope="track">Follow it</button>
+        </div>
+        <div id="trackOpts" data-video-only hidden>
+          <p class="muted tiny" style="margin:0 0 9px">Draw over the thing you want
+            hidden and it will be followed through the clip on its own.</p>
+          <label class="field" id="trackerRow"><span>Follow by</span>
+            <select id="trackerPick"></select></label>
+          <p class="muted tiny" id="trackerNote" style="margin:-4px 0 11px"></p>
         </div>
         <div class="btn-row">
           <button class="btn ghost small" id="addShape">Add one</button>
           <button class="btn ghost small" id="copyPrev" data-video-only>Copy from previous</button>
+        </div>
+        <div id="trackBar" hidden>
+          <div class="upload-label"><span id="trackNote">following</span><span id="trackPct">0%</span></div>
+          <div class="track"><div id="trackFill" class="fill"></div></div>
+          <div class="btn-row" style="margin:9px 0 0">
+            <button class="btn ghost small" id="trackStop">Stop</button>
+          </div>
         </div>
       </div>
 
@@ -203,10 +218,14 @@
             </div>
           </div>
 
+          <div class="btn-row" data-video-only>
+            <button class="btn ghost small" id="trackNow">Follow it from this frame</button>
+          </div>
+
           <div class="track-box" id="trackBox" hidden>
             <label class="toggle">
               <input type="checkbox" id="pTrack">
-              <span>Follow something that moves</span>
+              <span>Record positions as I move it</span>
             </label>
             <p class="muted tiny">With this on, every time you move or resize the shape on a
               new frame it records a position, and it glides between them.</p>

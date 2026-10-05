@@ -76,6 +76,35 @@ exactly as it will export.
 **Covers** is *this frame only*, which is how every oval starts, or *a run of
 frames* with **Whole clip** for the full length.
 
+### Following something automatically
+
+Set **Follow it** before you draw, put a shape over a face, a plate or a screen,
+and let go. The clip is read forward from that frame and the shape is carried
+along with the thing underneath it, growing and shrinking as it comes closer or
+further away, with a progress strip and a **Stop** button. **Follow it from this
+frame** in a selected shape's settings does the same for one you drew earlier.
+
+It stops at the end of the clip, or the moment it is no longer confident — "lost
+it at frame 412" — rather than carrying on and quietly covering the wrong part of
+the picture. Whatever it found is kept, so you can step to where it gave up, drag
+the shape back on and follow again.
+
+What comes back is an ordinary set of recorded positions, so nothing is locked.
+Positions a straight line already predicts are thinned out, so a long follow
+stays a small file.
+
+**Follow by** picks the method. *Motion* watches how the picture itself moves,
+using a grid of points checked forwards and backwards so only the trustworthy
+ones count; it is quick and handles something that drifts or changes size.
+*Appearance* learns what the thing looks like — steadier when an object turns,
+but it will not resize. Installing `opencv-contrib-python` adds *Accurate* (CSRT)
+and *Quick* (KCF) to the list on their own.
+
+*Motion* needs corners and texture to hold on to, not just a strong edge, since
+it cannot tell how far something slid along a plain straight line. Faces, plates,
+screens and printed labels give it plenty; a flat painted panel does not, and it
+will say so at once rather than drift.
+
 ### Working frame by frame
 
 Redrawing the same oval on every frame would be miserable, so **Copy from frame

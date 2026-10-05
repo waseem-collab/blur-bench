@@ -24,6 +24,7 @@ const S = {
   undo: [], redo: [], saveTimer: null, rev: 0,
   drag: null, hover: null, loading: 0, scope: 'frame',
   newKind: 'oval', newScope: 'one',
+  trackers: [], trackJob: null,
 };
 
 /* ====================================================================== */
@@ -193,6 +194,9 @@ async function openProject(id) {
     : 'Nothing covered on this frame. Drag across the picture.';
   $('frameTotal').textContent = 'of ' + (m.frames - 1);
   $('frameNum').max = m.frames - 1;
+  $('trackBar').hidden = true;
+  $('trackOpts').hidden = S.newScope !== 'track';
+  loadTrackers();
   fitZoom();
   goto(asked ? +asked : 0, true);
   renderShapeList();
@@ -309,7 +313,7 @@ function newId() { return 's' + Math.random().toString(36).slice(2, 9); }
 function makeShape(cx, cy, rx, ry) {
   const n = S.shapes.length;
   const kind = S.newKind;
-  const whole = S.newScope === 'all';
+  const whole = S.newScope === 'all';   // 'track' starts here and grows as it follows
   return {
     id: newId(), kind,
     name: (kind === 'rect' ? 'Box ' : 'Oval ') + (n + 1),
@@ -410,6 +414,93 @@ function copyFromPrevious() {
   }
   S.sel = last;
   afterChange();
+}
+
+/** Hand a shape to the server and let it follow the thing through the clip. */
+async function followShape(shape, fromFrame) {
+  if (!shape || isImage() || S.trackJob) return;
+  const last = S.proj.meta.frames - 1;
+  if (fromFrame >= last) return;
+
+  $('trackBar').hidden = false;
+  $('trackFill').style.width = '0%';
+  $('trackPct').textContent = '0%';
+  $('trackNote').textContent = `following "${shape.name}" from frame ${fromFrame}`;
+  let job;
+  try {
+    job = (await api(`/api/project/${S.proj.id}/track`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shape, from: fromFrame, to: last, tracker: $('trackerPick').value || 'flow',
+      }),
+    })).job;
+  } catch (e) {
+    $('trackNote').textContent = e.message;
+    setTimeout(() => { $('trackBar').hidden = true; }, 3000);
+    return;
+  }
+  S.trackJob = job;
+
+  for (;;) {
+    await new Promise(r => setTimeout(r, 250));
+    let j;
+    try { j = await api('/api/track/' + job); }
+    catch (e) { $('trackNote').textContent = e.message; break; }
+    const pct = Math.round((j.progress || 0) * 100);
+    $('trackFill').style.width = pct + '%';
+    $('trackPct').textContent = pct + '%';
+    if (j.state === 'running') {
+      $('trackNote').textContent = `following, frame ${(fromFrame + (j.frame || 0))}` +
+        (j.eta != null ? ` — about ${fmtDur(j.eta)} left` : '');
+      continue;
+    }
+    if (j.state === 'error') { $('trackNote').textContent = j.note || 'could not follow it'; break; }
+    if (j.state === 'done') {
+      applyTrack(shape.id, fromFrame, j);
+      break;
+    }
+  }
+  S.trackJob = null;
+  setTimeout(() => { if (!S.trackJob) $('trackBar').hidden = true; }, 3500);
+}
+
+function applyTrack(shapeId, fromFrame, j) {
+  const sh = S.shapes.find(s => s.id === shapeId);
+  if (!sh) { $('trackNote').textContent = 'that shape is gone'; return; }
+  if (!j.keys || j.keys.length < 2) {
+    $('trackNote').textContent = `could not follow it — ${j.reason || 'no movement found'}`;
+    return;
+  }
+  snapshot();
+  const before = (sh.keys || []).filter(k => k.f < fromFrame);
+  sh.keys = before.concat(j.keys);
+  sh.start = Math.min(sh.start, fromFrame);
+  sh.end = j.last;
+  sh.track = true;
+  afterChange();
+  const span = j.last - j.first + 1;
+  $('trackNote').textContent =
+    `followed ${span} frame${span === 1 ? '' : 's'}, to ${j.last} — ${j.reason}`;
+  $('trackPct').textContent = `${j.kept} marks`;
+}
+
+async function loadTrackers() {
+  try { S.trackers = await api('/api/trackers'); }
+  catch { S.trackers = [{ id: 'flow', label: 'Motion', note: '' }]; }
+  const sel = $('trackerPick');
+  sel.innerHTML = '';
+  S.trackers.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.label; o.dataset.note = t.note || '';
+    sel.appendChild(o);
+  });
+  $('trackerRow').hidden = S.trackers.length < 2;
+  syncTrackerNote();
+}
+
+function syncTrackerNote() {
+  const t = S.trackers.find(t => t.id === $('trackerPick').value);
+  $('trackerNote').textContent = t ? t.note : '';
 }
 
 function syncCopyBtn() {
@@ -710,6 +801,7 @@ function initCanvas() {
         S.shapes.push(sh);
         S.sel = sh.id;
         afterChange();
+        if (S.newScope === 'track' && !isImage()) followShape(sh, S.frame);
       } else { drawOverlay(); }
     } else {
       if (d.moved) afterChange(); else { S.undo.pop(); drawOverlay(); }
@@ -808,6 +900,7 @@ function initPanel() {
     const m = S.proj.meta;
     const sh = makeShape(m.width / 2, m.height / 2, m.width / 8, m.height / 8);
     S.shapes.push(sh); S.sel = sh.id; afterChange();
+    if (S.newScope === 'track' && !isImage()) followShape(sh, S.frame);
   };
   $('delShape').onclick = deleteSelected;
   $('copyPrev').onclick = copyFromPrevious;
@@ -821,8 +914,17 @@ function initPanel() {
     b.onclick = () => {
       S.newScope = b.dataset.scope;
       $('newScope').querySelectorAll('button').forEach(o => o.classList.toggle('on', o === b));
+      $('trackOpts').hidden = S.newScope !== 'track';
     };
   });
+  $('trackerPick').onchange = syncTrackerNote;
+  $('trackNow').onclick = () => followShape(selected(), S.frame);
+  $('trackStop').onclick = async () => {
+    if (S.trackJob) {
+      $('trackNote').textContent = 'stopping';
+      await api(`/api/track/${S.trackJob}/cancel`, { method: 'POST' });
+    }
+  };
   $('pKind').querySelectorAll('button').forEach(b => {
     b.onclick = () => editShape(s => { s.kind = b.dataset.kind; });
   });
